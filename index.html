@@ -23,7 +23,7 @@
     .file-chip { margin-top:13px; display:none; align-items:center; gap:8px; font-size:.85rem; color:var(--teal-dark); font-weight:700; } .file-chip.show { display:flex; }
     .preview { background:var(--wash); border-radius:13px; padding:17px; margin-top:22px; } .preview h3 { font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; color:var(--muted); margin:0 0 9px; } .preview div { display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-top:1px solid #d5e5e7; font-size:.93rem; } .preview div:first-of-type { border-top:0; }
     button { margin-top:22px; width:100%; background:var(--teal); color:white; border:0; border-radius:11px; padding:14px; font:700 1rem inherit; cursor:pointer; transition:.15s; } button:hover:not(:disabled) { background:var(--teal-dark); } button:disabled { opacity:.55; cursor:not-allowed; }
-    .note { font-size:.82rem; margin-top:14px; } .how { display:grid; gap:14px; } .step { display:flex; gap:13px; align-items:flex-start; } .num { background:var(--ink); color:white; font-weight:800; width:26px; height:26px; border-radius:50%; display:grid; place-items:center; flex:0 0 auto; font-size:.82rem; } .step strong { display:block; font-size:.94rem; margin-bottom:2px; } .step p { font-size:.85rem; }
+    .note { font-size:.82rem; margin-top:14px; } .pdf-preview { height:560px; border-radius:13px; overflow:hidden; background:#edf2f3; border:1px solid #d5e2e4; position:relative; } .pdf-preview iframe { width:100%; height:100%; border:0; background:#fff; } .preview-empty { height:100%; display:grid; place-content:center; text-align:center; padding:28px; color:var(--muted); } .preview-empty strong { display:block; color:var(--ink); margin-bottom:6px; }
     .status { display:none; margin-top:15px; padding:11px 13px; border-radius:10px; font-size:.88rem; } .status.show { display:block; } .status.ok { color:#075d51; background:#def7ef; } .status.err { color:#922b28; background:#fbe8e7; }
     @media(max-width:720px) { main{padding-top:30px}.workspace{grid-template-columns:1fr} header{display:block}.badge{display:inline-block;margin-top:10px}.card{padding:20px} }
   </style>
@@ -47,16 +47,16 @@
         <button id="generate" disabled>Tải PDF đã chỉnh</button>
         <div id="status" class="status"></div><p class="note">Nothing.</p>
       </div>
-      <aside class="card"><h2>Cách dùng</h2><div class="how"><div class="step"><span class="num">1</span><div><strong>Chọn file PDF tem</strong><p>File có thể gồm nhiều trang tem; công cụ áp dụng số mới cho tất cả trang.</p></div></div><div class="step"><span class="num">2</span><div><strong>Nhập số cần in</strong><p>Nhập số lô mới, số thùng và kg. Ví dụ: 1 BORDL / 80 KG.</p></div></div><div class="step"><span class="num">3</span><div><strong>Tải file để in</strong><p>Tool chỉ che và ghi lại ba dòng này; mọi nội dung khác giữ nguyên.</p></div></div></div></aside>
+      <aside class="card"><h2>Kiểm tra PDF đã tải</h2><p id="previewHint">Chọn file để xem trang đầu của tem tại đây.</p><div class="pdf-preview" style="margin-top:16px"><div class="preview-empty" id="previewEmpty"><div><strong>Chưa có file PDF</strong>Trang đầu của file sẽ hiện ở đây để bạn kiểm tra trước khi chỉnh.</div></div><iframe id="pdfPreview" title="Xem trước tem PDF" hidden></iframe></div></aside>
     </section>
   </main>
   <script>
     const $ = id => document.getElementById(id);
     const fileInput=$('pdfFile'), drop=$('drop'), keepLot=$('keepLot'), lotField=$('lotField'), lotNumber=$('lotNumber'), cartons=$('cartons'), weight=$('weight'), button=$('generate'), status=$('status');
-    let selectedFile=null;
+    let selectedFile=null, previewUrl=null;
     const kgText = value => Number(value).toLocaleString('en-US',{minimumFractionDigits:3,maximumFractionDigits:3}).replaceAll(',','.') + ' KG';
     function refresh() { const lot=lotNumber.value.trim(); lotField.hidden=keepLot.checked; const ready=selectedFile && (keepLot.checked || lot) && cartons.value>0 && cartons.value<10 && weight.value>0; button.disabled=!ready; $('lotPreview').textContent=keepLot.checked?'Giữ nguyên':(lot||'—'); $('weightPreview').textContent=weight.value>0?kgText(weight.value):'— KG'; $('cartonPreview').textContent=cartons.value>0?cartons.value:'—'; }
-    function choose(file) { if(!file) return; if(file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) return show('Vui lòng chọn file PDF.','err'); selectedFile=file; $('fileName').textContent=file.name; $('fileChip').classList.add('show'); refresh(); }
+    function choose(file) { if(!file) return; if(file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) return show('Vui lòng chọn file PDF.','err'); selectedFile=file; if(previewUrl) URL.revokeObjectURL(previewUrl); previewUrl=URL.createObjectURL(file); $('pdfPreview').src=previewUrl+'#page=1&view=FitH'; $('pdfPreview').hidden=false; $('previewEmpty').hidden=true; $('previewHint').textContent=`Đang xem: ${file.name} (trang 1)`; $('fileName').textContent=file.name; $('fileChip').classList.add('show'); refresh(); }
     fileInput.addEventListener('change', e=>choose(e.target.files[0]));
     ['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('dragover')})); ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('dragover')})); drop.addEventListener('drop',e=>choose(e.dataTransfer.files[0]));
     [lotNumber,cartons,weight].forEach(el=>el.addEventListener('input',refresh)); keepLot.addEventListener('change',refresh);
