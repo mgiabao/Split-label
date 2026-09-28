@@ -43,7 +43,7 @@
         <div class="file-chip" id="fileChip">✓ <span id="fileName"></span></div>
         <label class="keep-lot" for="keepLot"><input id="keepLot" type="checkbox" checked />Giữ nguyên số lô trong PDF</label>
         <div class="lot-field" id="lotField" hidden><label for="lotNumber">Số lô mới</label><input id="lotNumber" type="text" maxlength="40" placeholder="Ví dụ: Q13368771/03" /></div>
-        <label for="cartons">Số thùng</label><input id="cartons" type="number" min="1" max="9" step="1" placeholder="Ví dụ: 1" />
+        <label for="cartons">Số thùng</label><input id="cartons" type="number" min="1" step="1" placeholder="Ví dụ: 1" />
         <label for="weight">Trọng lượng (KG)</label><input id="weight" type="number" min="0.001" step="0.001" placeholder="Ví dụ: 80" />
         <div class="preview"><h3>Tem sau khi chỉnh</h3><div><span>Số lô</span><strong id="lotPreview">—</strong></div><div><span>Trọng lượng</span><strong id="weightPreview">— KG</strong></div><div><span>Số thùng</span><strong id="cartonPreview">—</strong></div><div><span>Đơn vị bao bì</span><strong>Giữ nguyên trong PDF</strong></div></div>
         <button id="generate" disabled>Tải PDF đã chỉnh</button>
@@ -57,27 +57,50 @@
     const fileInput=$('pdfFile'), drop=$('drop'), keepLot=$('keepLot'), lotField=$('lotField'), lotNumber=$('lotNumber'), cartons=$('cartons'), weight=$('weight'), button=$('generate'), status=$('status');
     let selectedFile=null;
     const kgText = value => Number(value).toLocaleString('en-US',{minimumFractionDigits:3,maximumFractionDigits:3}).replaceAll(',','.') + ' KG';
-    function refresh() { const lot=lotNumber.value.trim(); lotField.hidden=keepLot.checked; const ready=selectedFile && (keepLot.checked || lot) && cartons.value>0 && cartons.value<10 && weight.value>0; button.disabled=!ready; $('lotPreview').textContent=keepLot.checked?'Giữ nguyên':(lot||'—'); $('weightPreview').textContent=weight.value>0?kgText(weight.value):'— KG'; $('cartonPreview').textContent=cartons.value>0?cartons.value:'—'; }
+    function refresh() { const lot=lotNumber.value.trim(); const cartonValue=Number(cartons.value); lotField.hidden=keepLot.checked; const ready=selectedFile && (keepLot.checked || lot) && Number.isInteger(cartonValue) && cartonValue>0 && weight.value>0; button.disabled=!ready; $('lotPreview').textContent=keepLot.checked?'Giữ nguyên':(lot||'—'); $('weightPreview').textContent=weight.value>0?kgText(weight.value):'— KG'; $('cartonPreview').textContent=cartonValue>0?cartonValue:'—'; }
     async function renderPreview(file) { try { if(!window.pdfjsLib) throw new Error('Không tải được bộ xem PDF.'); pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; const doc=await pdfjsLib.getDocument({data:await file.arrayBuffer()}).promise; const page=await doc.getPage(1); const viewport=page.getViewport({scale:1.55}); const canvas=$('pdfPreview'), context=canvas.getContext('2d'); canvas.width=Math.ceil(viewport.width); canvas.height=Math.ceil(viewport.height); await page.render({canvasContext:context,viewport}).promise; canvas.hidden=false; $('previewEmpty').hidden=true; $('previewHint').textContent=`Đang xem: ${file.name} (trang 1 / ${doc.numPages})`; } catch(err) { console.error(err); $('previewHint').textContent='Không thể hiển thị preview, nhưng bạn vẫn có thể xử lý file.'; show('Không hiển thị được preview PDF. Hãy thử tải lại trang rồi chọn file lại.','err'); } }
     function choose(file) { if(!file) return; if(file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) return show('Vui lòng chọn file PDF.','err'); selectedFile=file; $('pdfPreview').hidden=true; $('previewEmpty').hidden=false; $('previewHint').textContent='Đang tạo ảnh xem trước…'; renderPreview(file); $('fileName').textContent=file.name; $('fileChip').classList.add('show'); refresh(); }
     fileInput.addEventListener('change', e=>choose(e.target.files[0]));
     ['dragenter','dragover'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.add('dragover')})); ['dragleave','drop'].forEach(e=>drop.addEventListener(e,ev=>{ev.preventDefault();drop.classList.remove('dragover')})); drop.addEventListener('drop',e=>choose(e.dataTransfer.files[0]));
     [lotNumber,cartons,weight].forEach(el=>el.addEventListener('input',refresh)); keepLot.addEventListener('change',refresh);
     function show(message,kind){ status.textContent=message;status.className='status show '+kind; }
+    async function getPackageUnits(pdfBytes, pageCount) {
+      if (!window.pdfjsLib) return Array(pageCount).fill('');
+      const previewPdf=await pdfjsLib.getDocument({data:pdfBytes.slice(0)}).promise;
+      const units=[];
+      for(let index=1;index<=pageCount;index++) {
+        const text=await (await previewPdf.getPage(index)).getTextContent();
+        const line=text.items
+          // Chỉ lấy phần bên phải dấu ":" của dòng Đơn vị, không lấy số ở cột khác cùng hàng.
+          .filter(item=>{ const y=item.transform?.[5]||0; const x=item.transform?.[4]||0; return y>345 && y<365 && x>=60 && x<=150; })
+          .sort((a,b)=>(a.transform?.[4]||0)-(b.transform?.[4]||0))
+          .map(item=>item.str).join('');
+        // Mã bao bì của tem là chuỗi chữ (TAMCH/BORDL/BIGBA...).
+        // Một số PDF để số ở cột kế bên dính sát ngay sau mã, ví dụ TAMCH12.
+        const match=line.match(/:\s*\d+\s+([A-Za-z]+)/);
+        units.push(match ? match[1] : '');
+      }
+      await previewPdf.destroy();
+      return units;
+    }
     button.addEventListener('click', async()=>{
       try {
         if(!window.PDFLib) throw new Error('Không tải được thư viện xử lý PDF. Hãy kiểm tra kết nối mạng và thử lại.');
         button.disabled=true; button.textContent='Đang tạo PDF…'; show('Đang thay số trên từng trang tem…','ok');
         const bytes=await selectedFile.arrayBuffer(); const pdf=await PDFLib.PDFDocument.load(bytes); const font=await pdf.embedFont(PDFLib.StandardFonts.Helvetica); const lotFont=await pdf.embedFont(PDFLib.StandardFonts.HelveticaBold);
         const newLot=lotNumber.value.trim(); const newKg=Number(weight.value).toLocaleString('en-US',{minimumFractionDigits:3,maximumFractionDigits:3}).replaceAll(',','.'); const newCartons=String(Math.trunc(Number(cartons.value)));
-        for(const page of pdf.getPages()) {
+        const packageUnits=await getPackageUnits(bytes,pdf.getPageCount());
+        if(packageUnits.some(unit=>!unit)) throw new Error('Không đọc được mã đơn vị trên tem. Vui lòng dùng đúng mẫu tem Oracle BI Publisher.');
+        for(const [pageIndex,page] of pdf.getPages().entries()) {
           const {height}=page.getSize();
           // Coordinates validated for Oracle BI Publisher A5 label shown in the supplied sample.
           if (!keepLot.checked) { page.drawRectangle({x:50,y:height-204,width:190,height:24,color:PDFLib.rgb(1,1,1)}); page.drawText(newLot,{x:50.43,y:393.18,size:20,font:lotFont,color:PDFLib.rgb(0,0,0)}); }
           page.drawRectangle({x:94,y:height-225,width:62,height:13,color:PDFLib.rgb(1,1,1)});
           page.drawText(` ${newKg} KG`,{x:94.404,y:373.61,size:10,font,color:PDFLib.rgb(0,0,0)});
-          page.drawRectangle({x:68,y:height-244,width:8,height:13,color:PDFLib.rgb(1,1,1)});
-          page.drawText(newCartons,{x:68.764,y:355.211,size:10,font,color:PDFLib.rgb(0,0,0)});
+          // Che toàn bộ phần số cũ + mã đơn vị, rồi ghi lại. Điều này tránh sót số cũ như 15 → 1.
+          const packageUnit=packageUnits[pageIndex];
+          page.drawRectangle({x:68,y:height-244,width:105,height:13,color:PDFLib.rgb(1,1,1)});
+          page.drawText(`${newCartons} ${packageUnit}`,{x:68.764,y:355.211,size:10,font,color:PDFLib.rgb(0,0,0)});
         }
         const out=await pdf.save(); const blob=new Blob([out],{type:'application/pdf'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download=selectedFile.name.replace(/\.pdf$/i,'')+'_edited.pdf'; a.click(); URL.revokeObjectURL(url);
         show(`Đã tạo ${pdf.getPageCount()} trang tem: ${keepLot.checked?'giữ nguyên lô':`lô ${newLot}`}, ${newCartons} thùng và ${newKg} KG. Đơn vị bao bì được giữ nguyên.`,'ok');
